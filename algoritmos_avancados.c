@@ -1,63 +1,130 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h> // Para tolower/toupper, se necessário para padronização
+
+// =====================================================================
+// DEFINIÇÕES DA TABELA HASH (Pista -> Suspeito)
+// =====================================================================
+
+#define HASH_SIZE 10 // Tamanho da Tabela Hash (simplificado)
+
+// Estrutura para um nó da lista encadeada (para colisões na Hash)
+typedef struct HashNode {
+    char pista[100];        // Chave: O conteúdo da pista (único)
+    char suspeito[50];      // Valor: O suspeito associado a esta pista
+    struct HashNode *proximo;
+} HashNode;
+
+// A Tabela Hash é um array de ponteiros para HashNode
+HashNode* tabelaHash[HASH_SIZE];
+
+/**
+ * @brief Função de hash simples que converte uma string em um índice.
+ *
+ * Soma os valores ASCII dos caracteres e aplica o módulo HASH_SIZE.
+ *
+ * @param chave A string (pista) a ser hasheada.
+ * @return O índice da tabela hash.
+ */
+int calcularHash(const char* chave) {
+    unsigned long int valorHash = 0;
+    int i = 0;
+    while (chave[i] != '\0') {
+        valorHash = valorHash * 31 + chave[i]; // Multiplicação por primo para dispersão
+        i++;
+    }
+    return valorHash % HASH_SIZE;
+}
+
+/**
+ * @brief Insere uma associação Pista -> Suspeito na Tabela Hash.
+ *
+ * Trata colisões usando encadeamento (separate chaining). Se a pista já existir,
+ * a função pode (nesta versão simplificada) ignorar ou sobrescrever.
+ *
+ * @param pista A chave (conteúdo da pista).
+ * @param suspeito O valor (nome do suspeito) a ser associado à pista.
+ */
+void inserirNaHash(const char* pista, const char* suspeito) {
+    if (strlen(pista) == 0) return; // Não insere pistas vazias
+    
+    int indice = calcularHash(pista);
+
+    // Cria o novo nó
+    HashNode* novoNo = (HashNode*)malloc(sizeof(HashNode));
+    if (novoNo == NULL) {
+        perror("Erro ao alocar HashNode");
+        exit(EXIT_FAILURE);
+    }
+    strncpy(novoNo->pista, pista, sizeof(novoNo->pista) - 1);
+    novoNo->pista[sizeof(novoNo->pista) - 1] = '\0';
+    strncpy(novoNo->suspeito, suspeito, sizeof(novoNo->suspeito) - 1);
+    novoNo->suspeito[sizeof(novoNo->suspeito) - 1] = '\0';
+    novoNo->proximo = NULL;
+
+    // Inserção no início da lista encadeada (para simplificar)
+    novoNo->proximo = tabelaHash[indice];
+    tabelaHash[indice] = novoNo;
+}
+
+/**
+ * @brief Busca o suspeito associado a uma pista na Tabela Hash.
+ *
+ * @param pista A chave (conteúdo da pista) a ser buscada.
+ * @return O nome do suspeito, ou uma string vazia ("") se não for encontrado.
+ */
+const char* encontrarSuspeito(const char* pista) {
+    if (strlen(pista) == 0) return "";
+    
+    int indice = calcularHash(pista);
+    HashNode* atual = tabelaHash[indice];
+
+    while (atual != NULL) {
+        // strcasecmp é usado para comparação de strings sem case sensitivity
+        if (strcasecmp(atual->pista, pista) == 0) {
+            return atual->suspeito; // Encontrado!
+        }
+        atual = atual->proximo;
+    }
+    
+    return ""; // Não encontrado
+}
+
+/**
+ * @brief Libera a memória alocada para a Tabela Hash.
+ */
+void liberarHash() {
+    for (int i = 0; i < HASH_SIZE; i++) {
+        HashNode* atual = tabelaHash[i];
+        while (atual != NULL) {
+            HashNode* temp = atual;
+            atual = atual->proximo;
+            free(temp);
+        }
+        tabelaHash[i] = NULL;
+    }
+}
+
+// =====================================================================
+// DEFINIÇÕES DA ÁRVORE DE PISTAS (BST)
+// =====================================================================
 
 // Definição da estrutura para uma Pista (nó da Árvore BST)
 typedef struct PistaNode {
-    char conteudo[100];         // Conteúdo textual da pista
-    struct PistaNode *esquerda; // Ponteiro para a subárvore esquerda (menores)
-    struct PistaNode *direita;  // Ponteiro para a subárvore direita (maiores)
+    char conteudo[100];
+    struct PistaNode *esquerda;
+    struct PistaNode *direita;
 } PistaNode;
 
-// Definição da estrutura para um Cômodo (nó da Árvore Binária da Mansão)
-typedef struct Sala {
-    char nome[50];              // Nome do cômodo
-    char pista[100];            // Pista associada a este cômodo (pode ser vazio)
-    struct Sala *esquerda;      // Ponteiro para o cômodo à esquerda
-    struct Sala *direita;       // Ponteiro para o cômodo à direita
-} Sala;
-
-// Variável global para armazenar a raiz da Árvore BST de Pistas Coletadas
+// Raiz da BST de Pistas Coletadas (Variável Global)
 PistaNode* raizPistas = NULL;
 
 
 /**
- * @brief Cria dinamicamente uma nova sala com o nome e a pista especificados.
+ * @brief Cria e insere dinamicamente uma nova pista na Árvore Binária de Busca (BST).
  *
- * Aloca memória para uma nova estrutura Sala, copia o nome e a pista fornecida
- * e inicializa os ponteiros 'esquerda' e 'direita' como NULL.
- * Se a pista for uma string vazia (""), a sala é criada sem uma pista para coletar.
- *
- * @param nome O nome do cômodo a ser criado.
- * @param pista O conteúdo da pista a ser associada ao cômodo (ou "" se não houver).
- * @return Um ponteiro para a Sala recém-criada.
- */
-Sala* criarSala(const char* nome, const char* pista) {
-    Sala* novaSala = (Sala*)malloc(sizeof(Sala));
-    if (novaSala == NULL) {
-        perror("Erro ao alocar memória para a sala");
-        exit(EXIT_FAILURE);
-    }
-    // Copia o nome
-    strncpy(novaSala->nome, nome, sizeof(novaSala->nome) - 1);
-    novaSala->nome[sizeof(novaSala->nome) - 1] = '\0';
-    
-    // Copia a pista
-    strncpy(novaSala->pista, pista, sizeof(novaSala->pista) - 1);
-    novaSala->pista[sizeof(novaSala->pista) - 1] = '\0';
-    
-    novaSala->esquerda = NULL;
-    novaSala->direita = NULL;
-    return novaSala;
-}
-
-/**
- * @brief Cria e insere dinamicamente uma nova pista na Árvore Binária de Busca (BST) de pistas.
- *
- * A inserção é feita de forma recursiva, mantendo a propriedade de ordenação alfabética:
- * Pistas menores (alfabeticamente) vão para a esquerda, maiores vão para a direita.
- *
- * @param raiz O ponteiro para a raiz da subárvore atual (pode ser NULL se vazia).
+ * @param raiz O ponteiro para a raiz da subárvore atual.
  * @param conteudo O conteúdo textual da pista a ser inserida.
  * @return O ponteiro para a nova raiz da subárvore após a inserção.
  */
@@ -77,79 +144,157 @@ PistaNode* inserirPista(PistaNode* raiz, const char* conteudo) {
     }
 
     // 2. Caso recursivo: Compara o novo conteúdo com o conteúdo da raiz atual
-    int comparacao = strcasecmp(conteudo, raiz->conteudo); // Compara ignorando maiúsculas/minúsculas
+    int comparacao = strcasecmp(conteudo, raiz->conteudo); // Compara ignorando case
 
     if (comparacao < 0) {
-        // Pista menor (alfabeticamente): vai para a subárvore esquerda
         raiz->esquerda = inserirPista(raiz->esquerda, conteudo);
     } else if (comparacao > 0) {
-        // Pista maior (alfabeticamente): vai para a subárvore direita
         raiz->direita = inserirPista(raiz->direita, conteudo);
-    } else {
-        // Caso de pista duplicada: Ignora a inserção e informa o jogador.
-        printf(" -> Pista já coletada: \"%s\".\n", conteudo);
-    }
+    } 
+    // Se for igual, é duplicata, não faz nada (mantém apenas uma ocorrência)
 
-    // Retorna o ponteiro para a raiz (que pode ter sido alterado na criação do nó)
     return raiz;
 }
 
 /**
- * @brief Exibe todas as pistas coletadas na árvore BST em ordem alfabética (percurso In-order).
- *
- * A travessia In-order (Esquerda -> Raiz -> Direita) garante que os elementos
- * de uma BST sejam impressos em ordem crescente (ou alfabética, neste caso).
+ * @brief Exibe todas as pistas coletadas na árvore BST em ordem alfabética (In-order).
  *
  * @param raiz A raiz da subárvore de pistas a ser exibida.
  */
 void exibirPistas(PistaNode* raiz) {
     if (raiz != NULL) {
-        // 1. Visita a subárvore esquerda
         exibirPistas(raiz->esquerda);
-        
-        // 2. Visita o nó atual (imprime a pista)
         printf("- %s\n", raiz->conteudo);
-        
-        // 3. Visita a subárvore direita
         exibirPistas(raiz->direita);
     }
 }
 
 /**
+ * @brief Conta recursivamente quantas pistas na BST apontam para um suspeito.
+ * * Utiliza a Tabela Hash global para verificar o suspeito de cada pista.
+ *
+ * @param raiz A raiz da subárvore de pistas.
+ * @param suspeitoAcusado O nome do suspeito a ser contado.
+ * @return O número de pistas encontradas.
+ */
+int contarPistasPorSuspeito(PistaNode* raiz, const char* suspeitoAcusado) {
+    if (raiz == NULL) {
+        return 0;
+    }
+
+    int contagem = 0;
+    
+    // 1. Visita a subárvore esquerda
+    contagem += contarPistasPorSuspeito(raiz->esquerda, suspeitoAcusado);
+
+    // 2. Visita o nó atual (verifica a pista)
+    const char* suspeitoDaPista = encontrarSuspeito(raiz->conteudo);
+    if (strcasecmp(suspeitoDaPista, suspeitoAcusado) == 0) {
+        contagem++;
+    }
+
+    // 3. Visita a subárvore direita
+    contagem += contarPistasPorSuspeito(raiz->direita, suspeitoAcusado);
+
+    return contagem;
+}
+
+
+/**
+ * @brief Libera a memória alocada para a Árvore BST de pistas recursivamente.
+ */
+void liberarPistas(PistaNode* pista) {
+    if (pista != NULL) {
+        liberarPistas(pista->esquerda);
+        liberarPistas(pista->direita);
+        free(pista);
+    }
+}
+
+// =====================================================================
+// DEFINIÇÕES DA ÁRVORE DA MANSÃO (Árvore Binária)
+// =====================================================================
+
+// Definição da estrutura para um Cômodo
+typedef struct Sala {
+    char nome[50];
+    char pista[100]; // Pista que pode ser coletada nesta sala
+    int coletada;    // Flag para evitar coleta duplicada (0=Não, 1=Sim)
+    struct Sala *esquerda;
+    struct Sala *direita;
+} Sala;
+
+
+/**
+ * @brief Cria dinamicamente uma nova sala com o nome e a pista especificados.
+ *
+ * @param nome O nome do cômodo.
+ * @param pista O conteúdo da pista a ser associada ao cômodo (ou "" se não houver).
+ * @return Um ponteiro para a Sala recém-criada.
+ */
+Sala* criarSala(const char* nome, const char* pista) {
+    Sala* novaSala = (Sala*)malloc(sizeof(Sala));
+    if (novaSala == NULL) {
+        perror("Erro ao alocar memória para a sala");
+        exit(EXIT_FAILURE);
+    }
+    
+    strncpy(novaSala->nome, nome, sizeof(novaSala->nome) - 1);
+    novaSala->nome[sizeof(novaSala->nome) - 1] = '\0';
+    
+    strncpy(novaSala->pista, pista, sizeof(novaSala->pista) - 1);
+    novaSala->pista[sizeof(novaSala->pista) - 1] = '\0';
+    
+    novaSala->coletada = (strlen(pista) == 0) ? 1 : 0; // Se não tem pista, marca como "coletada"
+    
+    novaSala->esquerda = NULL;
+    novaSala->direita = NULL;
+    return novaSala;
+}
+
+/**
+ * @brief Libera a memória alocada para a árvore da mansão recursivamente.
+ */
+void liberarMansao(Sala* sala) {
+    if (sala != NULL) {
+        liberarMansao(sala->esquerda);
+        liberarMansao(sala->direita);
+        free(sala);
+    }
+}
+
+
+// =====================================================================
+// LÓGICA DO JOGO E JULGAMENTO
+// =====================================================================
+
+/**
  * @brief Permite ao jogador navegar pela mansão e coletar pistas interativamente.
  *
- * Guia o jogador a tomar decisões de 'esquerda', 'direita' ou 'sair'.
- * Se a sala atual tiver uma pista não vazia, ela é coletada (inserida na BST).
- *
  * @param atual O ponteiro para o cômodo (Sala) onde a exploração deve começar.
- * @return O ponteiro para a raiz da BST de pistas após a exploração.
  */
-PistaNode* explorarSalasComPistas(Sala* atual) {
+void explorarSalas(Sala* atual) {
     char escolha;
     
-    // Inicia com a BST de pistas coletadas (global)
-    PistaNode* pistasColetadas = raizPistas; 
-
-    // Continua a exploração enquanto houver um cômodo atual
     while (atual != NULL) {
         printf("\n==========================================\n");
         printf("Você está no(a): **%s**\n", atual->nome);
 
         // ** Lógica de Coleta de Pista **
-        if (strlen(atual->pista) > 0) {
+        if (atual->coletada == 0) {
             printf("\n- Indício encontrado! Pista: \"%s\"\n", atual->pista);
             // Insere a pista na Árvore BST
-            pistasColetadas = inserirPista(pistasColetadas, atual->pista); 
+            raizPistas = inserirPista(raizPistas, atual->pista); 
             // Marca a pista como coletada para que não seja coletada novamente
-            atual->pista[0] = '\0'; 
-            printf("Pista adicionada ao seu diário de bordo.\n");
+            atual->coletada = 1; 
+            printf("Pista adicionada ao seu diário de bordo e associada ao suspeito.\n");
         } else {
-            printf("Este cômodo já foi vasculhado ou não possui indícios.\n");
+            printf("Este cômodo já foi vasculhado ou não possui indícios a coletar.\n");
         }
         
         // Define se o caminho é final
         if (atual->esquerda == NULL && atual->direita == NULL) {
-            printf("\nFim do caminho! Este cômodo não possui mais saídas.\n");
+            printf("\nFim do caminho! Este cômodo não possui mais saídas. Hora de decidir.\n");
             break; 
         }
 
@@ -161,12 +306,11 @@ PistaNode* explorarSalasComPistas(Sala* atual) {
         if (atual->direita != NULL) {
             printf("[d] Direita -> %s\n", atual->direita->nome);
         }
-        printf("[s] Sair da mansão: ");
+        printf("[s] Sair da mansão e iniciar o julgamento: ");
         
         // Leitura da escolha
         if (scanf(" %c", &escolha) != 1) { 
             printf("Entrada inválida. Tente novamente.\n");
-            // Limpa o buffer de entrada em caso de erro
             while (getchar() != '\n'); 
             continue;
         }
@@ -176,61 +320,104 @@ PistaNode* explorarSalasComPistas(Sala* atual) {
 
         // Processa a escolha do jogador
         if (escolha == 's' || escolha == 'S') {
-            printf("\nExploração encerrada. Saindo da mansão...\n");
+            printf("\nExploração encerrada. Início do Julgamento...\n");
             break;
         } else if ((escolha == 'e' || escolha == 'E') && atual->esquerda != NULL) {
-            atual = atual->esquerda; // Move para o cômodo da esquerda
+            atual = atual->esquerda;
         } else if ((escolha == 'd' || escolha == 'D') && atual->direita != NULL) {
-            atual = atual->direita;  // Move para o cômodo da direita
+            atual = atual->direita;
         } else {
             printf("Opção inválida ou caminho inexistente. Tente novamente.\n");
         }
     }
+}
+
+/**
+ * @brief Conduz à fase de julgamento final: solicita a acusação e verifica a evidência.
+ */
+void verificarSuspeitoFinal() {
+    char acusacao[50];
     
-    return pistasColetadas; // Retorna a raiz atualizada da BST
-}
+    printf("\n\n******************************************\n");
+    printf("              JULGAMENTO FINAL\n");
+    printf("******************************************\n");
 
-/**
- * @brief Libera a memória alocada para a árvore da mansão recursivamente.
- *
- * @param sala A raiz da subárvore a ser liberada.
- */
-void liberarMansao(Sala* sala) {
-    if (sala != NULL) {
-        liberarMansao(sala->esquerda);
-        liberarMansao(sala->direita);
-        free(sala);
+    if (raizPistas == NULL) {
+        printf("Você não coletou nenhuma pista. Acusação impossível!\n");
+        return;
     }
-}
 
-/**
- * @brief Libera a memória alocada para a Árvore BST de pistas recursivamente.
- *
- * @param pista A raiz da subárvore de pistas a ser liberada.
- */
-void liberarPistas(PistaNode* pista) {
-    if (pista != NULL) {
-        liberarPistas(pista->esquerda);
-        liberarPistas(pista->direita);
-        free(pista);
+    printf("Pistas coletadas (em ordem alfabética):\n");
+    exibirPistas(raizPistas);
+    printf("\n");
+
+    printf("Suspeitos conhecidos: Senhorita Scarlet, Coronel Mustard, Professor Plum\n");
+    printf("Quem você acusa como culpado(a)? (Digite o nome): ");
+    
+    // Leitura da acusação (garante que a string não passe do limite)
+    if (fgets(acusacao, sizeof(acusacao), stdin) == NULL) {
+        printf("Erro de leitura.\n");
+        return;
     }
+    // Remove o newline (Enter) do final da string lida por fgets
+    acusacao[strcspn(acusacao, "\n")] = '\0';
+
+    if (strlen(acusacao) < 2) {
+        printf("\nAcusação inválida. O julgamento terminou por falta de seriedade.\n");
+        return;
+    }
+
+    // 1. Contar as pistas que apontam para o suspeito
+    int pistasDeSuporte = contarPistasPorSuspeito(raizPistas, acusacao);
+
+    // 2. Apresentar o veredito
+    printf("\nVEREDITO:\n");
+    printf("O detetive acusa: **%s**\n", acusacao);
+    printf("Pistas de suporte encontradas: %d\n", pistasDeSuporte);
+
+    if (pistasDeSuporte >= 2) {
+        printf("\n!!! PARABÉNS !!!\n");
+        printf("As evidências (%d pistas) são suficientes para sustentar a acusação de **%s**.\n", pistasDeSuporte, acusacao);
+        printf("A justiça foi feita.\n");
+    } else {
+        printf("\n!!! ACUSAÇÃO FALHA !!!\n");
+        printf("Apenas %d pista(s) encontrada(s) apóia(m) sua acusação.\n", pistasDeSuporte);
+        printf("São necessárias pelo menos duas pistas. O culpado escapou!\n");
+    }
+    printf("******************************************\n");
 }
 
 
-/**
- * @brief Função principal: monta o mapa, inicia a exploração e exibe o relatório final.
- *
- * @return 0 se o programa for executado com sucesso.
- */
+// =====================================================================
+// FUNÇÃO PRINCIPAL
+// =====================================================================
+
 int main() {
-    printf("======================================\n");
-    printf("  BEM-VINDO(A) AO DETECTIVE QUEST\n");
-    printf("  Explorando a Mansão Misteriosa\n");
-    printf("======================================\n");
+    // Inicializa a Tabela Hash
+    memset(tabelaHash, 0, sizeof(tabelaHash));
 
-    // 1. Montagem do Mapa da Mansão (Árvore Binária Fixa com Pistas)
-    // Usamos o criarSala(nome, pista)
+    printf("======================================\n");
+    printf("      BEM-VINDO(A) AO DETECTIVE QUEST\n");
+    printf("     Explorando a Mansão e Julgamento\n");
+    printf("======================================\n");
     
+    // ----------------------------------------------------
+    // 1. Definição das Associações Pista -> Suspeito (Tabela Hash)
+    // ----------------------------------------------------
+    inserirNaHash("A chave está com quem mente.", "Coronel Mustard");
+    inserirNaHash("O papel rasgado aponta para o Leste.", "Professor Plum");
+    inserirNaHash("A luz do abajur tem uma mancha.", "Coronel Mustard");
+    inserirNaHash("A pena e tinta estão novas.", "Professor Plum");
+    inserirNaHash("Uma garrafa de vinho tinto está faltando.", "Senhorita Scarlet");
+    inserirNaHash("As flores raras estão murchas.", "Professor Plum");
+    inserirNaHash("Um relógio parou às 3:00.", "Senhorita Scarlet");
+    inserirNaHash("Um rastelo de metal está quebrado.", "Coronel Mustard");
+
+    // ----------------------------------------------------
+    // 2. Montagem do Mapa da Mansão (Árvore Binária)
+    // ----------------------------------------------------
+    // O código da pista deve ser exatamente igual ao da Hash!
+
     // Nível 0: Raiz (Hall de entrada)
     Sala* hallEntrada = criarSala("Hall de Entrada", "A chave está com quem mente.");
 
@@ -261,26 +448,22 @@ int main() {
 
     printf("\nA exploração começa no Hall de Entrada. Boa sorte, Detetive!\n");
 
-    // 2. Início da Exploração e Coleta de Pistas
-    // O retorno da função atualiza a raiz global de pistas
-    raizPistas = explorarSalasComPistas(hallEntrada);
+    // ----------------------------------------------------
+    // 3. Início da Exploração e Coleta de Pistas
+    // ----------------------------------------------------
+    explorarSalas(hallEntrada);
 
-    // 3. Relatório Final de Pistas Coletadas
-    printf("\n\n******************************************\n");
-    printf("       RELATÓRIO FINAL DE INDÍCIOS\n");
-    printf("******************************************\n");
-    
-    if (raizPistas == NULL) {
-        printf("Nenhuma pista foi coletada durante a exploração.\n");
-    } else {
-        printf("Pistas coletadas (em ordem alfabética):\n");
-        exibirPistas(raizPistas);
-    }
-    printf("******************************************\n");
+    // ----------------------------------------------------
+    // 4. Julgamento Final
+    // ----------------------------------------------------
+    verificarSuspeitoFinal();
 
-    // 4. Liberação da Memória
+    // ----------------------------------------------------
+    // 5. Liberação da Memória
+    // ----------------------------------------------------
     liberarMansao(hallEntrada);
-    liberarPistas(raizPistas); // Libera a BST de pistas
+    liberarPistas(raizPistas);
+    liberarHash();
     
     return 0;
 }
